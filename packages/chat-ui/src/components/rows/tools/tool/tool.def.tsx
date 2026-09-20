@@ -80,7 +80,7 @@ export function toolFromItem(item: ToolNode, ctx: SegmentCtx): ChatToolCall {
 export const toolUnitDef = defineUnit<ChatToolCall, ToolVars>({
   kind: 'tool',
   margin: { top: 2, bottom: 2 },
-  vars: { rowH: ROW_H, imageW: 240, imageH: 150, imageGap: 8 },
+  vars: { rowH: ROW_H, imageW: 360, imageH: 225, imageGap: 8 },
 
   measure(data, ctx, vars): number {
     return vars.rowH + toolImageStripHeight(data.images?.length ?? 0, ctx.width, vars);

@@ -38,8 +38,11 @@ export const toolRow = style([
 
 // ── Images the tool returned (a screenshot, a chart) ─────────────────────────
 // Fixed tiles, so the strip's height is a pure function of the count and the
-// width (tool.def.ts measures it the same way); `contain` rather than `cover`
-// because a screenshot's edges are where the evidence usually is.
+// width (tool.def.ts measures it the same way). `cover`, anchored top-left:
+// a screenshot is usually a tall page, and `contain` shrank it to an
+// unreadable thumbnail in the tile's corner (seen live); showing the top of
+// the page at tile scale reads, and the click hands the whole image to the
+// host's viewer.
 
 export const toolImageStrip = style({
   display: 'flex',
@@ -70,7 +73,7 @@ export const toolImage = style({
   display: 'block',
   width: '100%',
   height: '100%',
-  objectFit: 'contain',
+  objectFit: 'cover',
   objectPosition: 'top left',
 });
 
