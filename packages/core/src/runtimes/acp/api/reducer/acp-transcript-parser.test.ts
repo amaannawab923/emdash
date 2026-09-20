@@ -374,6 +374,96 @@ describe('AcpTranscriptParser', () => {
     });
   });
 
+  it('tool_call_update image content lands on the tool item as images, whatever its kind', () => {
+    const p = new AcpTranscriptParser(deps());
+    p.push(userChunk('u1', 'take a screenshot'));
+    p.push(toolCallUpdate('shot-1', 'mcp__browser__take_screenshot', 'other'));
+    p.push({
+      sessionUpdate: 'tool_call_update',
+      sessionId: 'sess-1',
+      toolCallId: 'shot-1',
+      title: null,
+      kind: null,
+      status: 'completed',
+      content: [
+        { type: 'content', content: { type: 'text', text: 'Took a screenshot.' } },
+        { type: 'content', content: { type: 'image', data: 'iVBORw0KGgo=', mimeType: 'image/png' } },
+      ],
+    } as unknown as SessionUpdate);
+
+    expect(p.activeTurn?.items.find((i) => i.kind === 'unknown-tool-call')).toMatchObject({
+      status: 'done',
+      images: [{ mimeType: 'image/png', data: 'iVBORw0KGgo=' }],
+    });
+  });
+
+  it('images arriving over several updates accumulate; an update without images keeps them', () => {
+    const p = new AcpTranscriptParser(deps());
+    p.push(userChunk('u1', 'two shots'));
+    p.push(toolCallUpdate('shot-2', 'screenshots', 'other'));
+    const withImage = (data: string): SessionUpdate =>
+      ({
+        sessionUpdate: 'tool_call_update',
+        sessionId: 'sess-1',
+        toolCallId: 'shot-2',
+        title: null,
+        kind: null,
+        status: 'in_progress',
+        content: [{ type: 'content', content: { type: 'image', data, mimeType: 'image/png' } }],
+      }) as unknown as SessionUpdate;
+    p.push(withImage('AAAA'));
+    p.push(withImage('BBBB'));
+    p.push(toolUpdateDone('shot-2'));
+
+    const tool = p.activeTurn?.items.find((i) => i.kind === 'unknown-tool-call');
+    expect(tool).toMatchObject({ status: 'done' });
+    expect((tool as { images?: unknown[] }).images).toEqual([
+      { mimeType: 'image/png', data: 'AAAA' },
+      { mimeType: 'image/png', data: 'BBBB' },
+    ]);
+  });
+
+  it('drops image blocks that are not images or are too large, and caps the count', () => {
+    const p = new AcpTranscriptParser(deps());
+    p.push(userChunk('u1', 'many shots'));
+    p.push(toolCallUpdate('shot-3', 'screenshots', 'other'));
+    const blocks = [
+      { type: 'content', content: { type: 'image', data: '', mimeType: 'image/png' } },
+      { type: 'content', content: { type: 'image', data: 'x', mimeType: 'text/plain' } },
+      { type: 'content', content: { type: 'image', data: 'y'.repeat(4 * 1024 * 1024 + 1), mimeType: 'image/png' } },
+      ...Array.from({ length: 12 }, (_, i) => ({
+        type: 'content',
+        content: { type: 'image', data: `img${i}`, mimeType: 'image/png' },
+      })),
+    ];
+    p.push({
+      sessionUpdate: 'tool_call_update',
+      sessionId: 'sess-1',
+      toolCallId: 'shot-3',
+      title: null,
+      kind: null,
+      status: 'completed',
+      content: blocks,
+    } as unknown as SessionUpdate);
+
+    const tool = p.activeTurn?.items.find((i) => i.kind === 'unknown-tool-call') as {
+      images?: Array<{ data: string }>;
+    };
+    expect(tool.images?.map((i) => i.data)).toEqual(
+      Array.from({ length: 8 }, (_, i) => `img${i}`)
+    );
+  });
+
+  it('a tool with no image content has no images field at all', () => {
+    const p = new AcpTranscriptParser(deps());
+    p.push(userChunk('u1', 'run it'));
+    p.push(toolCallUpdate('exec-1', 'ls', 'execute'));
+    p.push(toolUpdateWithTextOutput('exec-1', 'a\nb'));
+    expect(p.activeTurn?.items.find((i) => i.kind === 'execute-tool-call')).not.toHaveProperty(
+      'images'
+    );
+  });
+
   it('preserves provider execute descriptions as inputSummary', () => {
     const p = new AcpTranscriptParser(deps());
     p.push(userChunk('u1', 'install dependencies'));

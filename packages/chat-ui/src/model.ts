@@ -69,6 +69,12 @@ export type ChatToolCall = {
   inputSummary?: string;
   /** Id of the parent tool call (for hierarchical rendering). */
   parentId?: string;
+  /**
+   * Images the tool returned as content (a browser tool's screenshot, a
+   * rendered chart), shown as a preview strip under the row. Always carry
+   * `dataUrl` — the transcript stores the bytes.
+   */
+  images?: ChatImageAttachment[];
 };
 
 export type SubagentPhase = 'spawning' | 'running' | 'completed' | 'failed';

@@ -2,6 +2,7 @@ export type {
   AttachmentRef,
   EnrichHook,
   NormalizedDiff,
+  NormalizedImage,
   NormalizedEvent,
   NormalizedToolStatus,
   PlanEntryInput,

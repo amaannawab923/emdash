@@ -47,12 +47,12 @@ export type ChatCommands = {
 
   /**
    * Called when the user clicks an image attachment thumbnail inside a user
-   * message bubble.
+   * message bubble, or an image a tool returned (its preview under the row).
    */
   onViewImage?: (arg: {
     attachment: ChatImageAttachment;
     itemId: string;
-    source: 'user-message';
+    source: 'user-message' | 'tool';
   }) => void;
 
   /**

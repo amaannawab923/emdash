@@ -2,6 +2,13 @@ import { z } from 'zod';
 import type { ToolCallGroupKind, ToolStatus } from './tools';
 import { toolCallGroupKindSchema, toolStatusSchema } from './tools';
 
+/** An image the tool returned as content (a screenshot, a rendered chart). */
+export interface ToolImage {
+  mimeType: string;
+  /** Base64, no data-URL prefix. */
+  data: string;
+}
+
 export interface BaseToolCallItem {
   id: string;
   seq: number;
@@ -11,6 +18,8 @@ export interface BaseToolCallItem {
   inputSummary?: string;
   parentToolCallId?: string;
   children?: ToolNode[];
+  /** Images in the tool's result content, in order; absent when none. */
+  images?: ToolImage[];
 }
 
 export interface ExecuteToolCall extends BaseToolCallItem {
@@ -108,6 +117,11 @@ export type ToolNode = ToolCallItem | ToolGroup;
 
 const toolChildrenSchema: z.ZodType<ToolNode[]> = z.lazy(() => z.array(toolNodeSchema));
 
+export const toolImageSchema = z.object({
+  mimeType: z.string(),
+  data: z.string(),
+});
+
 export const baseToolCallItemSchema = z.object({
   id: z.string(),
   /** Stable order within the owning sibling list, assigned once by the reducer. */
@@ -122,6 +136,8 @@ export const baseToolCallItemSchema = z.object({
   parentToolCallId: z.string().optional(),
   /** Nested provider or reducer-derived tool nodes owned by this call. */
   children: toolChildrenSchema.optional(),
+  /** Images in the tool's result content (ACP `image` blocks), in order. */
+  images: z.array(toolImageSchema).optional(),
 });
 
 export const executeToolCallSchema = baseToolCallItemSchema.extend({

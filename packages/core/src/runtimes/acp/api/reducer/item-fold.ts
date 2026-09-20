@@ -23,6 +23,7 @@ import type {
   TranscriptThinking,
   ToolCallItem,
   ToolGroup,
+  ToolImage,
   ToolNode,
   ToolStatus,
 } from '../models/turns';
@@ -167,16 +168,23 @@ export function createToolCallItem(params: {
   inputSummary?: string;
   outputText?: string;
   terminalId?: string;
+  images?: ToolImage[];
 }): ToolCallItem {
-  const base = baseToolFields(
-    params.id,
-    params.seq,
-    params.toolCallId,
-    params.title,
-    params.status,
-    params.parentToolCallId,
-    params.inputSummary
-  );
+  const base = {
+    ...baseToolFields(
+      params.id,
+      params.seq,
+      params.toolCallId,
+      params.title,
+      params.status,
+      params.parentToolCallId,
+      params.inputSummary
+    ),
+    // On the base, not per kind: any tool can return an image (a browser
+    // tool's screenshot, a chart), and the transcript shows it whatever
+    // the row kind.
+    ...(params.images !== undefined && params.images.length > 0 ? { images: params.images } : {}),
+  };
   const { title, toolKind } = params;
   if (isSubagentKind(toolKind)) {
     return { kind: 'spawn-subagent-tool-call', ...base, name: title };
@@ -214,7 +222,8 @@ function updateToolCallItem(
   title: string | null,
   status: NormalizedToolStatus | null,
   outputText?: string,
-  terminalId?: string
+  terminalId?: string,
+  images?: ToolImage[]
 ): ToolCallItem {
   const mapped = mapToolStatus(status ?? undefined);
   const nextTitle = title ?? item.title;
@@ -222,6 +231,11 @@ function updateToolCallItem(
     ...item,
     ...(mapped !== undefined ? { status: mapped } : {}),
     ...(title !== null ? { title: title } : {}),
+    // An update that carries images appends them (a tool may report its
+    // result in more than one update); one without leaves them as they are.
+    ...(images !== undefined && images.length > 0
+      ? { images: [...(item.images ?? []), ...images] }
+      : {}),
   };
   switch (item.kind) {
     case 'execute-tool-call':
@@ -694,6 +708,7 @@ export function foldItem(
         ...(event.inputSummary !== undefined ? { inputSummary: event.inputSummary } : {}),
         ...(event.outputText !== undefined ? { outputText: event.outputText } : {}),
         ...(event.terminalId !== undefined ? { terminalId: event.terminalId } : {}),
+        ...(event.images !== undefined ? { images: event.images } : {}),
       });
       const next = upsertToolCallItem(base, tool);
       return normalizeToolStructure(next, turnId);
@@ -725,7 +740,8 @@ export function foldItem(
           event.title,
           event.status,
           event.outputText,
-          event.terminalId
+          event.terminalId,
+          event.images
         );
         next = base.map((it, i) => (i === idx ? updated : it));
       } else if (hasFileOperationsForToolCall(base, event.toolCallId)) {
@@ -745,6 +761,7 @@ export function foldItem(
             parentToolCallId,
             ...(event.outputText !== undefined ? { outputText: event.outputText } : {}),
             ...(event.terminalId !== undefined ? { terminalId: event.terminalId } : {}),
+            ...(event.images !== undefined ? { images: event.images } : {}),
           })
         );
       }

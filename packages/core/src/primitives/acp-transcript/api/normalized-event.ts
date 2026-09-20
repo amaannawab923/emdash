@@ -30,6 +30,17 @@ export type NormalizedDiff = {
 
 export type NormalizedToolStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 
+/**
+ * An image a tool returned as content — an ACP `image` block (base64
+ * data + mime type), e.g. a browser tool's screenshot. Carried on the
+ * tool item so the transcript shows what the tool saw.
+ */
+export type NormalizedImage = {
+  mimeType: string;
+  /** Base64, no data-URL prefix. */
+  data: string;
+};
+
 export type NormalizedEvent =
   | {
       kind: 'message';
@@ -54,6 +65,7 @@ export type NormalizedEvent =
       inputSummary?: string;
       outputText?: string;
       terminalId?: string;
+      images?: NormalizedImage[];
     }
   | {
       kind: 'subagent';
@@ -109,6 +121,7 @@ export type NormalizedEvent =
       diffs: NormalizedDiff[];
       outputText?: string;
       terminalId?: string;
+      images?: NormalizedImage[];
     }
   | {
       kind: 'plan';

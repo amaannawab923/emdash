@@ -15,7 +15,12 @@
  */
 
 import type { SessionUpdate, ToolCallContent } from '@agentclientprotocol/sdk';
-import type { NormalizedDiff, NormalizedEvent, NormalizedToolStatus } from './normalized-event';
+import type {
+  NormalizedDiff,
+  NormalizedEvent,
+  NormalizedImage,
+  NormalizedToolStatus,
+} from './normalized-event';
 
 function extractDiffs(
   content: ReadonlyArray<ToolCallContent> | null | undefined
@@ -66,6 +71,47 @@ function extractTextOutput(
   }
   const text = parts.join('\n');
   return text ? stripSingleCodeFence(text) : undefined;
+}
+
+/**
+ * The most images kept per tool call, and the largest single image kept
+ * (base64 length) — a transcript is persisted and replayed, so a tool
+ * that returns a huge or endless stream of images must not grow it
+ * without bound. A screenshot of a viewport is tens to hundreds of KB.
+ */
+export const MAX_TOOL_IMAGES = 8;
+export const MAX_TOOL_IMAGE_BASE64_LENGTH = 4 * 1024 * 1024;
+
+function collectImagePayload(value: unknown, out: NormalizedImage[]): void {
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    for (const item of value) collectImagePayload(item, out);
+    return;
+  }
+  const raw = value as { type?: unknown; data?: unknown; mimeType?: unknown; content?: unknown };
+  if (raw.type === 'image') {
+    if (
+      typeof raw.data === 'string' &&
+      raw.data.length > 0 &&
+      raw.data.length <= MAX_TOOL_IMAGE_BASE64_LENGTH &&
+      typeof raw.mimeType === 'string' &&
+      raw.mimeType.startsWith('image/')
+    ) {
+      out.push({ mimeType: raw.mimeType, data: raw.data });
+    }
+    return;
+  }
+  collectImagePayload(raw.content, out);
+}
+
+/** ACP `image` blocks in a tool's content (a screenshot, a rendered chart), bounded. */
+function extractImages(
+  content: ReadonlyArray<ToolCallContent> | null | undefined
+): NormalizedImage[] | undefined {
+  if (!content) return undefined;
+  const images: NormalizedImage[] = [];
+  collectImagePayload(content, images);
+  return images.length > 0 ? images.slice(0, MAX_TOOL_IMAGES) : undefined;
 }
 
 function extractTerminalId(update: SessionUpdate): string | undefined {
@@ -125,6 +171,7 @@ export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
     case 'tool_call': {
       const terminalId = extractTerminalId(update);
       const inputSummary = extractInputSummary(update);
+      const images = extractImages(update.content);
       return {
         kind: 'tool_call',
         toolCallId: update.toolCallId,
@@ -135,12 +182,14 @@ export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
         diffs: extractDiffs(update.content),
         ...(inputSummary !== undefined ? { inputSummary } : {}),
         ...(terminalId !== undefined ? { terminalId } : {}),
+        ...(images !== undefined ? { images } : {}),
       };
     }
 
     case 'tool_call_update': {
       const outputText = extractTextOutput(update.content ?? undefined);
       const terminalId = extractTerminalId(update);
+      const images = extractImages(update.content ?? undefined);
       return {
         kind: 'tool_update',
         toolCallId: update.toolCallId,
@@ -151,6 +200,7 @@ export function decodeSessionUpdate(update: SessionUpdate): NormalizedEvent {
         diffs: extractDiffs(update.content ?? undefined),
         ...(outputText !== undefined ? { outputText } : {}),
         ...(terminalId !== undefined ? { terminalId } : {}),
+        ...(images !== undefined ? { images } : {}),
       };
     }
 
