@@ -79,6 +79,13 @@ export const vars = createGlobalThemeContract(
     planDone: 'chat-plan-done',
     planActive: 'chat-plan-active',
 
+    // Execute (terminal) panel — its own surface, dark in both themes, so a
+    // shell command and its output read as a terminal rather than a text box.
+    termBg: 'chat-term-bg',
+    termFg: 'chat-term-fg',
+    termFgMuted: 'chat-term-fg-muted',
+    termFgPassive: 'chat-term-fg-passive',
+
     // ── Non-color design tokens ────────────────────────────────────────────────
     fontSans: 'chat-font-sans',
     fontMono: 'chat-font-mono',
@@ -218,6 +225,10 @@ createGlobalTheme(':where(:root), :where(.emlight)', vars, {
   tableHeaderBg: '#f1f0f0',
   planDone: '#22c55e',
   planActive: '#f59e0b',
+  termBg: '#15171a',
+  termFg: '#e6e7e9',
+  termFgMuted: '#a9adb4',
+  termFgPassive: '#7c8189',
   ...NON_COLOR_VARS,
 });
 
@@ -261,5 +272,9 @@ createGlobalTheme(':where(.emdark)', vars, {
   tableHeaderBg: '#181818',
   planDone: '#4fcca8',
   planActive: '#dead52',
+  termBg: '#0d0e10',
+  termFg: '#e6e7e9',
+  termFgMuted: '#a9adb4',
+  termFgPassive: '#7c8189',
   ...NON_COLOR_VARS,
 });

@@ -1,18 +1,21 @@
 /**
- * execute-lines — incremental display-line and width bookkeeping for the
+ * execute-lines — incremental display-line and row bookkeeping for the
  * execute row.
  *
  * Live terminal output arrives as an identity-stable lines array (the client
  * log store mutates it in place and bumps a version per flush). Both helpers
- * here key WeakMap caches on that array identity so per-update work is
+ * here key WeakMap caches on array identity so per-update work is
  * proportional to *new* lines only:
  *
- *   executeLines        — rebuilds the display array per flush but reuses the
- *                         previous row objects for unchanged lines, so the
- *                         renderer's keyed <For> does not recreate DOM rows.
- *   maxOutputLineWidth  — natural-width overflow tracking as a running max;
- *                         committed lines are measured exactly once, only the
- *                         still-growing tail line is re-measured per call.
+ *   executeLines      — rebuilds the display array per flush but reuses the
+ *                       previous row objects for unchanged lines, so the
+ *                       renderer's keyed <For> does not recreate DOM rows.
+ *   wrapExecuteLines  — breaks display lines into physical rows of at most
+ *                       `maxChars` characters. The row does its own wrapping
+ *                       (like a terminal) instead of letting the browser wrap,
+ *                       so the unit's measured height is rows × line height
+ *                       with no layout involved — the measure === DOM-height
+ *                       invariant every chat-ui row must keep.
  */
 
 import type { ChatExecute } from '@/model';
@@ -23,6 +26,9 @@ export type ExecuteDisplayLine = {
 };
 
 export const TRUNCATED_LINE_TEXT = '… earlier output truncated';
+
+/** Tabs render at tab stops under `white-space: pre`, which the wrapper cannot count; expand them. */
+const TAB = '    ';
 
 // ── Display lines ─────────────────────────────────────────────────────────────
 
@@ -68,7 +74,8 @@ function buildDisplay(
   previous: ExecuteDisplayLine[] | undefined
 ): ExecuteDisplayLine[] {
   const next: ExecuteDisplayLine[] = [];
-  const push = (kind: ExecuteDisplayLine['kind'], text: string): void => {
+  const push = (kind: ExecuteDisplayLine['kind'], raw: string): void => {
+    const text = raw.includes('\t') ? raw.replaceAll('\t', TAB) : raw;
     const old = previous?.[next.length];
     next.push(old && old.kind === kind && old.text === text ? old : { kind, text });
   };
@@ -88,46 +95,92 @@ function buildDisplay(
   return next;
 }
 
-// ── Incremental width tracking ────────────────────────────────────────────────
+// ── Physical rows ─────────────────────────────────────────────────────────────
 
-export type LineWidthMeasurer = (text: string) => number;
-
-type WidthTrack = {
-  fontKey: unknown;
-  committedCount: number;
-  committedMax: number;
+export type ExecuteRow = {
+  kind: ExecuteDisplayLine['kind'];
+  text: string;
+  /** The display line this row was cut from. */
+  line: ExecuteDisplayLine;
+  /** Offset (UTF-16 code units) of `text` within that display line. */
+  start: number;
 };
 
-const widthTracks = new WeakMap<readonly string[], WidthTrack>();
+/** True when `text` fits on one row of the panel; only consulted for non-ASCII text. */
+export type RowFits = (text: string) => boolean;
+
+type LineRows = { maxChars: number; rows: ExecuteRow[] };
+
+/** Per display line: its rows at a given width. Lines are identity-stable across flushes. */
+const lineRows = new WeakMap<ExecuteDisplayLine, LineRows>();
+/** Per display array: the assembled rows, so an unchanged transcript costs nothing. */
+const arrayRows = new WeakMap<ExecuteDisplayLine[], LineRows>();
+
+/** Anything outside printable ASCII may not be one advance wide in the code font. */
+const NON_ASCII = /[^ -~]/;
 
 /**
- * Running-max natural width over a live-appended lines array.
+ * Break display lines into rows of at most `maxChars` characters, the way a
+ * terminal of that width would. `maxChars` comes from the panel's inner width
+ * over the code font's advance, so for ASCII (the overwhelming case for shell
+ * text) the cut is exact without measuring anything. A row with non-ASCII
+ * text may hold wider glyphs, so it is checked with `fits` and shortened
+ * until it does — never the other way round, so a row never overflows its
+ * panel and is never cut shorter than the browser would have fit.
  *
- * All lines except the last are committed: measured once and folded into the
- * stored max. The last line is still growing (partial line), so it is measured
- * on every call but never committed. Front eviction only shrinks the array —
- * evicted lines stay in the running max by design (a scrollbar that appeared
- * never disappears mid-stream).
+ * Memoized per display line: a live output flush only wraps the new tail,
+ * and unchanged lines keep their row objects for the renderer's keyed <For>.
  */
-export function maxOutputLineWidth(
-  lines: readonly string[],
-  fontKey: unknown,
-  measure: LineWidthMeasurer
-): number {
-  if (lines.length === 0) return 0;
+export function wrapExecuteLines(
+  lines: ExecuteDisplayLine[],
+  maxChars: number,
+  fits: RowFits
+): ExecuteRow[] {
+  const cap = Math.max(1, Math.floor(maxChars));
+  const whole = arrayRows.get(lines);
+  if (whole && whole.maxChars === cap) return whole.rows;
 
-  let track = widthTracks.get(lines);
-  if (!track || track.fontKey !== fontKey) {
-    track = { fontKey, committedCount: 0, committedMax: 0 };
-    widthTracks.set(lines, track);
+  const rows: ExecuteRow[] = [];
+  for (const line of lines) {
+    let cached = lineRows.get(line);
+    if (!cached || cached.maxChars !== cap) {
+      cached = { maxChars: cap, rows: wrapLine(line, cap, fits) };
+      lineRows.set(line, cached);
+    }
+    for (const row of cached.rows) rows.push(row);
   }
+  arrayRows.set(lines, { maxChars: cap, rows });
+  return rows;
+}
 
-  const committable = lines.length - 1;
-  if (track.committedCount > committable) track.committedCount = committable;
-  for (let i = track.committedCount; i < committable; i += 1) {
-    track.committedMax = Math.max(track.committedMax, measure(lines[i]!));
+function wrapLine(line: ExecuteDisplayLine, cap: number, fits: RowFits): ExecuteRow[] {
+  const text = line.text;
+  if (text.length <= cap && (!NON_ASCII.test(text) || fits(text))) {
+    return [{ kind: line.kind, text, line, start: 0 }];
   }
-  track.committedCount = committable;
-
-  return Math.max(track.committedMax, measure(lines[lines.length - 1]!));
+  const out: ExecuteRow[] = [];
+  const points = Array.from(text);
+  let i = 0;
+  let start = 0;
+  while (i < points.length) {
+    let n = Math.min(cap, points.length - i);
+    let chunk = points.slice(i, i + n).join('');
+    if (NON_ASCII.test(chunk)) {
+      // Binary-search the longest prefix that fits; wide glyphs (CJK, emoji)
+      // take more than one advance each.
+      let lo = 1;
+      let hi = n;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        if (fits(points.slice(i, i + mid).join(''))) lo = mid;
+        else hi = mid - 1;
+      }
+      n = lo;
+      chunk = points.slice(i, i + n).join('');
+    }
+    out.push({ kind: line.kind, text: chunk, line, start });
+    start += chunk.length;
+    i += n;
+  }
+  return out;
 }

@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { ChatExecute } from '@/model';
-import { executeLines, maxOutputLineWidth } from './execute-lines';
+import { executeLines, wrapExecuteLines } from './execute-lines';
 
 function item(overrides: Partial<ChatExecute> = {}): ChatExecute {
   return {
@@ -44,41 +44,64 @@ describe('executeLines', () => {
   });
 });
 
-describe('maxOutputLineWidth', () => {
-  it('measures each committed line once across repeated calls (running max)', () => {
-    const measure = vi.fn((text: string) => text.length);
-    const lines: string[] = ['aaaa', 'bb'];
+describe('wrapExecuteLines', () => {
+  const ascii = () => true;
 
-    expect(maxOutputLineWidth(lines, 'font', measure)).toBe(4);
-    // 'aaaa' committed; 'bb' (last, still growing) measured but not committed.
-    expect(measure).toHaveBeenCalledTimes(2);
-
-    measure.mockClear();
-    lines.push('cccccc');
-    expect(maxOutputLineWidth(lines, 'font', measure)).toBe(6);
-    // Only 'bb' (newly committed) and 'cccccc' (new tail) are measured.
-    expect(measure).toHaveBeenCalledTimes(2);
-
-    measure.mockClear();
-    expect(maxOutputLineWidth(lines, 'font', measure)).toBe(6);
-    // Steady state: only the tail line is re-measured.
-    expect(measure).toHaveBeenCalledTimes(1);
+  it('keeps short lines whole and cuts long ones at maxChars, remembering the offset', () => {
+    const lines = executeLines(item({ command: 'abcdefghij', outputLines: ['xy'] }));
+    const rows = wrapExecuteLines(lines, 5, ascii);
+    expect(rows.map((r) => [r.kind, r.text, r.start])).toEqual([
+      ['command', '$ abc', 0],
+      ['command', 'defgh', 5],
+      ['command', 'ij', 10],
+      ['spacer', '', 0],
+      ['output', 'xy', 0],
+    ]);
+    expect(rows[1]!.line).toBe(lines[0]);
   });
 
-  it('keeps the running max when old lines are evicted from the front', () => {
-    const measure = (text: string) => text.length;
-    const lines: string[] = ['wide-line-that-is-long', 'short'];
-    expect(maxOutputLineWidth(lines, 'font', measure)).toBe(22);
-    lines.shift();
-    expect(maxOutputLineWidth(lines, 'font', measure)).toBe(22);
+  it('shortens a non-ASCII row until it fits instead of trusting the character count', () => {
+    // Pretend every glyph here is two advances wide: a row "fits" at 3 chars.
+    const fits = (text: string) => text.length <= 3;
+    const lines = executeLines(item({ command: '漢字漢字漢字漢' }));
+    const rows = wrapExecuteLines(lines, 6, fits);
+    expect(rows.map((r) => r.text)).toEqual(['$ 漢', '字漢字', '漢字漢']);
   });
 
-  it('re-measures from scratch when the font key changes', () => {
-    const measure = vi.fn((text: string) => text.length);
-    const lines = ['abc', 'de'];
-    maxOutputLineWidth(lines, 'font-a', measure);
-    measure.mockClear();
-    maxOutputLineWidth(lines, 'font-b', measure);
-    expect(measure).toHaveBeenCalledTimes(2);
+  it('expands tabs so rows count what the panel will draw', () => {
+    const lines = executeLines(item({ command: 'a\tb' }));
+    expect(lines[0]!.text).toBe('$ a    b');
+  });
+
+  it('never splits a surrogate pair', () => {
+    const lines = executeLines(item({ command: 'ab😀cd' }));
+    const rows = wrapExecuteLines(lines, 4, () => true);
+    expect(rows.map((r) => r.text)).toEqual(['$ ab', '😀cd']);
+    expect(rows[1]!.start).toBe(4);
+  });
+
+  it('reuses row objects for unchanged lines across live updates and widths', () => {
+    const live: string[] = ['one', 'two'];
+    const first = wrapExecuteLines(
+      executeLines(item({ outputLines: live, outputVersion: 1 })),
+      40,
+      ascii
+    );
+    live.push('three');
+    const second = wrapExecuteLines(
+      executeLines(item({ outputLines: live, outputVersion: 2 })),
+      40,
+      ascii
+    );
+    expect(second).toHaveLength(first.length + 1);
+    for (let i = 0; i < first.length; i += 1) expect(second[i]).toBe(first[i]);
+    // Same input, same width: the very same array.
+    expect(
+      wrapExecuteLines(executeLines(item({ outputLines: live, outputVersion: 2 })), 40, ascii)
+    ).toBe(second);
+    // A new width re-wraps.
+    expect(
+      wrapExecuteLines(executeLines(item({ outputLines: live, outputVersion: 2 })), 2, ascii)
+    ).not.toBe(second);
   });
 });

@@ -3,11 +3,18 @@ import { vars } from '@styles/theme.css';
 
 // ── Body ──────────────────────────────────────────────────────────────────────
 
-/** Wrapper: height + overflow set inline (depend on expanded state + bodyH). */
+/**
+ * The terminal panel. Height and overflow-y are set inline (they depend on
+ * the expanded state and the row count); rows are pre-wrapped so it never
+ * scrolls horizontally.
+ */
 export const executeBody = style({
   position: 'relative',
-  boxSizing: 'content-box',
+  boxSizing: 'border-box',
+  overflowX: 'hidden',
+  background: vars.termBg,
   scrollbarWidth: 'thin',
+  scrollbarColor: `${vars.termFgPassive} transparent`,
 });
 
 globalStyle(`${executeBody}::-webkit-scrollbar`, {
@@ -15,20 +22,21 @@ globalStyle(`${executeBody}::-webkit-scrollbar`, {
   height: 'var(--execute-scrollbar-size)',
 });
 
-// ── Line ──────────────────────────────────────────────────────────────────────
+// ── Rows ──────────────────────────────────────────────────────────────────────
 
 export const executeLine = style({
   whiteSpace: 'pre',
+  overflow: 'hidden',
   fontSize: vars.typeCodeFontSize,
   fontWeight: vars.typeCodeFontWeight,
   fontFamily: vars.typeCodeFontFamily,
-  color: vars.fg,
+  color: vars.termFg,
   // line-height is set via inline style from theme.fonts.code.lineHeight
   // so it cannot drift from the measured value via a CSS variable.
 });
 
 export const executeOutputLine = style({
-  color: vars.fgMuted,
+  color: vars.termFgMuted,
 });
 
 export const executeSpacerLine = style({
@@ -36,15 +44,40 @@ export const executeSpacerLine = style({
 });
 
 export const executeTruncatedLine = style({
-  color: vars.fgPassive,
+  color: vars.termFgPassive,
   fontStyle: 'italic',
   userSelect: 'none',
 });
 
-globalStyle(`${executeLine} span`, {
-  color: 'var(--shiki-light)',
+/**
+ * The collapsed panel's last row when more rows exist: "··· N more lines —
+ * Show all". A real row with a click target, in place of a fade that used to
+ * slice text mid-glyph.
+ */
+export const executeMoreLine = style({
+  color: vars.termFgPassive,
+  userSelect: 'none',
+  cursor: 'pointer',
+  selectors: {
+    '&:hover': { color: vars.termFg },
+  },
 });
 
-globalStyle(`.emdark ${executeLine} span`, {
+export const executeMoreAction = style({
+  textDecoration: 'underline',
+  textUnderlineOffset: '2px',
+});
+
+// The panel is dark in both themes, so bash highlighting always uses the
+// dark-theme token colors.
+globalStyle(`${executeLine} span`, {
   color: 'var(--shiki-dark)',
+});
+
+// ── Header ────────────────────────────────────────────────────────────────────
+
+/** Wraps the copy button so its click does not toggle the card. */
+export const executeCopy = style({
+  display: 'inline-flex',
+  alignItems: 'center',
 });

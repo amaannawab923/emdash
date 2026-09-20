@@ -4,61 +4,94 @@
  * Renders ACP `kind: 'execute'` tool calls as a collapsible card:
  *
  *   ┌─────────────────────────────────────┐
- *   │  Execute                          › │  ← header (CollapsibleCard primitive)
+ *   │  Execute                     [copy] │  ← header (CollapsibleCard primitive)
  *   ├─────────────────────────────────────┤
- *   │  pnpm run build --filter=...        │  ← body: mono, bash-highlighted
- *   │  ...                                │    clamped to collapsedMaxLines or
- *   └─────────────────────────────────────┘    expandedMaxLines with overflow scroll
+ *   │  $ pnpm run build --filter=@emdash/ │  ← body: a terminal panel — mono,
+ *   │  chat-ui                            │    bash-highlighted, rows wrapped by
+ *   │                                     │    the row itself (execute-lines.ts)
+ *   │  ··· 41 more lines — Show all       │  ← collapsed: a real last row, not
+ *   └─────────────────────────────────────┘    a fade; expanded: scrolls inside
  *
  * Header + card shell are provided by CollapsibleCard.
- * Body:   collapsed = clamped height + fade overlay; expanded = scrollable.
  */
 
 import { useCaches } from '@components/contexts/CachesContext';
 import { cancelIdle, scheduleIdle } from '@components/engine/dom-utils';
 import { applyTokensToElement, type CodeToken } from '@core/highlight/apply-tokens';
-import { For, Show, createEffect, onCleanup } from 'solid-js';
+import { For, Show, createEffect, createMemo, onCleanup } from 'solid-js';
 import type { ChatExecute } from '@/model';
-import type { ExecuteDisplayLine } from './execute-lines';
+import type { ExecuteDisplayLine, ExecuteRow } from './execute-lines';
 import {
   executeBody,
   executeLine,
+  executeMoreAction,
+  executeMoreLine,
   executeOutputLine,
   executeSpacerLine,
   executeTruncatedLine,
 } from './execute.css';
-import { fadeOverlayBottom } from '@styles/effects.css';
+
+// ── Token slicing ─────────────────────────────────────────────────────────────
+
+/** The tokens covering `[start, end)` of a highlighted line, cut at the edges. */
+export function sliceTokens(tokens: CodeToken[], start: number, end: number): CodeToken[] {
+  const out: CodeToken[] = [];
+  let at = 0;
+  for (const tok of tokens) {
+    const tokEnd = at + tok.content.length;
+    if (tokEnd > start && at < end) {
+      const content = tok.content.slice(
+        Math.max(0, start - at),
+        Math.min(tok.content.length, end - at)
+      );
+      if (content) out.push(tok.htmlStyle ? { content, htmlStyle: tok.htmlStyle } : { content });
+    }
+    at = tokEnd;
+    if (at >= end) break;
+  }
+  return out;
+}
 
 // ── ExecuteBody ───────────────────────────────────────────────────────────────
 
 export type ExecuteBodyProps = {
   item: ChatExecute;
-  lines: ExecuteDisplayLine[];
+  /** Every physical row of the panel (command, spacer, output …). */
+  rows: ExecuteRow[];
+  /** Rows shown; when fewer than `rows`, the last visible slot is the "more" row. */
+  visibleRows: number;
+  /** Panel height (px) including its vertical padding. */
   bodyH: number;
+  /** Height (px) of all rows plus padding — larger than bodyH only when the expanded panel scrolls. */
   contentH: number;
   codeLineH: number;
   linePadX: number;
-  scrollbarH: number;
-  scrollbarGap: number;
+  padY: number;
+  scrollbarSize: number;
   expanded: boolean;
 };
 
 export function ExecuteBody(props: ExecuteBodyProps) {
   const caches = useCaches();
-  const lineEls = new Map<number, HTMLElement>();
+  const rowEls = new Map<ExecuteRow, HTMLElement>();
 
+  // Bash highlighting runs over the logical command lines once; each physical
+  // row then paints the slice of its line's tokens that it carries.
   createEffect(() => {
-    const commandLines = props.lines
-      .map((line, index) => ({ line, index }))
-      .filter(({ line }) => line.kind === 'command');
-    const command = commandLines.map(({ line }) => line.text).join('\n');
-    if (!command || !lineEls.size) return;
+    const commandLines: ExecuteDisplayLine[] = [];
+    for (const row of props.rows) {
+      if (row.kind !== 'command') break;
+      if (commandLines[commandLines.length - 1] !== row.line) commandLines.push(row.line);
+    }
+    const command = commandLines.map((line) => line.text).join('\n');
+    if (!command || !rowEls.size) return;
 
     function paint(tokenLines: CodeToken[][]): void {
-      for (let i = 0; i < commandLines.length; i++) {
-        const el = lineEls.get(commandLines[i].index);
-        const tokens = tokenLines[i];
-        if (el && tokens) applyTokensToElement(el, tokens);
+      for (const [row, el] of rowEls) {
+        if (row.kind !== 'command') continue;
+        const tokens = tokenLines[commandLines.indexOf(row.line)];
+        if (tokens)
+          applyTokensToElement(el, sliceTokens(tokens, row.start, row.start + row.text.length));
       }
     }
 
@@ -82,57 +115,60 @@ export function ExecuteBody(props: ExecuteBodyProps) {
     });
   });
 
-  const overflows = () => props.contentH > props.bodyH;
+  const truncated = () => props.visibleRows < props.rows.length;
+  const shown = createMemo(() =>
+    truncated() ? props.rows.slice(0, Math.max(0, props.visibleRows - 1)) : props.rows
+  );
+  const hiddenCount = () => props.rows.length - shown().length;
+
+  const rowStyle = () => ({
+    height: `${props.codeLineH}px`,
+    'line-height': `${props.codeLineH}px`,
+    'padding-left': `${props.linePadX}px`,
+    'padding-right': `${props.linePadX}px`,
+  });
 
   return (
     <div
       class={executeBody}
       style={{
         height: `${props.bodyH}px`,
-        'padding-bottom': `${props.scrollbarH + props.scrollbarGap}px`,
-        '--execute-scrollbar-size': `${props.scrollbarH}px`,
-        'overflow-x': 'auto',
-        'overflow-y': props.expanded && overflows() ? 'auto' : 'hidden',
+        'padding-top': `${props.padY}px`,
+        'padding-bottom': `${props.padY}px`,
+        '--execute-scrollbar-size': `${props.scrollbarSize}px`,
+        'overflow-y': props.expanded && props.contentH > props.bodyH ? 'auto' : 'hidden',
       }}
     >
-      <Show when={!props.expanded && overflows()}>
-        <div
-          class={fadeOverlayBottom}
-          style={{
-            position: 'absolute',
-            inset: '0',
-            'pointer-events': 'none',
-            height: '28px',
-            bottom: '0',
-            top: 'auto',
-          }}
-          aria-hidden="true"
-        />
-      </Show>
-      <For each={props.lines}>
-        {(line, i) => (
+      <For each={shown()}>
+        {(row) => (
           <div
             ref={(el) => {
-              lineEls.set(i(), el);
-              onCleanup(() => lineEls.delete(i()));
+              rowEls.set(row, el);
+              onCleanup(() => rowEls.delete(row));
             }}
             class={executeLine}
             classList={{
-              [executeOutputLine]: line.kind === 'output',
-              [executeSpacerLine]: line.kind === 'spacer',
-              [executeTruncatedLine]: line.kind === 'truncated',
+              [executeOutputLine]: row.kind === 'output',
+              [executeSpacerLine]: row.kind === 'spacer',
+              [executeTruncatedLine]: row.kind === 'truncated',
             }}
-            style={{
-              height: `${props.codeLineH}px`,
-              'line-height': `${props.codeLineH}px`,
-              'padding-left': `${props.linePadX}px`,
-              'padding-right': `${props.linePadX}px`,
-            }}
+            style={rowStyle()}
           >
-            {line.text}
+            {row.text}
           </div>
         )}
       </For>
+      <Show when={truncated()}>
+        <div
+          class={`${executeLine} ${executeMoreLine}`}
+          style={rowStyle()}
+          role="button"
+          data-collapse-id={props.item.id}
+        >
+          {`··· ${hiddenCount()} more ${hiddenCount() === 1 ? 'line' : 'lines'} — `}
+          <span class={executeMoreAction}>Show all</span>
+        </div>
+      </Show>
     </div>
   );
 }

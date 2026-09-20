@@ -58,6 +58,22 @@ export const copyButtonOverlay = style([
   },
 ]);
 
+/**
+ * Always-visible icon-only button for a card header (execute rows): the
+ * header is a click target itself, so the affordance must be visible without
+ * a hover to discover.
+ */
+export const copyButtonIcon = style([
+  buttonBase,
+  {
+    opacity: 1,
+    borderRadius: '4px',
+    padding: '2px',
+    background: 'none',
+    border: 'none',
+  },
+]);
+
 export const copyButtonInline = style([
   buttonBase,
   {
