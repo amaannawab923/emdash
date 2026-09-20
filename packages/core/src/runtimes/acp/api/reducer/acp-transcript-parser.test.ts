@@ -423,6 +423,29 @@ describe('AcpTranscriptParser', () => {
     ]);
   });
 
+  it('caps images accumulated across many updates of one call, keeping the first', () => {
+    const p = new AcpTranscriptParser(deps());
+    p.push(userChunk('u1', 'stream'));
+    p.push(toolCallUpdate('shot-s', 'screencast', 'other'));
+    for (let i = 0; i < 12; i += 1) {
+      p.push({
+        sessionUpdate: 'tool_call_update',
+        sessionId: 'sess-1',
+        toolCallId: 'shot-s',
+        title: null,
+        kind: null,
+        status: 'in_progress',
+        content: [{ type: 'content', content: { type: 'image', data: `f${i}`, mimeType: 'image/png' } }],
+      } as unknown as SessionUpdate);
+    }
+    const tool = p.activeTurn?.items.find((i) => i.kind === 'unknown-tool-call') as {
+      images?: Array<{ data: string }>;
+    };
+    expect(tool.images?.map((i) => i.data)).toEqual(
+      Array.from({ length: 8 }, (_, i) => `f${i}`)
+    );
+  });
+
   it('drops image blocks that are not images or are too large, and caps the count', () => {
     const p = new AcpTranscriptParser(deps());
     p.push(userChunk('u1', 'many shots'));

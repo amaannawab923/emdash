@@ -14,6 +14,7 @@
  */
 
 import { SESSION_PLAN_ID } from '../models/plan';
+import { MAX_TOOL_IMAGES } from './decode';
 import type {
   CreateFileToolCall,
   CreatePlanToolCall,
@@ -233,8 +234,12 @@ function updateToolCallItem(
     ...(title !== null ? { title: title } : {}),
     // An update that carries images appends them (a tool may report its
     // result in more than one update); one without leaves them as they are.
+    // Re-capped here, not only at decode: a call that streams many updates
+    // must not grow the persisted transcript without bound (found in
+    // review — the host's snapshot cap drops whole turns, so one runaway
+    // call could empty a run's saved history).
     ...(images !== undefined && images.length > 0
-      ? { images: [...(item.images ?? []), ...images] }
+      ? { images: [...(item.images ?? []), ...images].slice(0, MAX_TOOL_IMAGES) }
       : {}),
   };
   switch (item.kind) {
