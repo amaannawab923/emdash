@@ -211,6 +211,8 @@ export type ChatRootProps = {
   /**
    * Classes for the centered content column. Defaults to a max-width column.
    * Rows are measured against this element's width, not the scroll container.
+   * The composer slot's inner wrapper carries the same classes, so a host
+   * that widens the column gets a composer that lines up with it.
    */
   contentClass?: string;
   /**
@@ -1814,7 +1816,7 @@ export function ChatRoot(props: ChatRootProps) {
                       ref={(el) => {
                         composerSlotEl = el;
                       }}
-                      class={`${composerSlotInnerClass} ${effectiveComposerPlacement() === 'center' ? composerSlotInnerCenteredClass : composerSlotInnerBottomClass}`}
+                      class={`${composerSlotInnerClass} ${contentClass()} ${effectiveComposerPlacement() === 'center' ? composerSlotInnerCenteredClass : composerSlotInnerBottomClass}`}
                     />
                   </div>
                 </Show>

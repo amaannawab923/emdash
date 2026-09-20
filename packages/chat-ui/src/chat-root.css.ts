@@ -186,17 +186,15 @@ export const heroSlotHiddenClass = style({
 });
 
 /**
- * Inner centering wrapper inside the composer slot — constrains the composer
- * to the same max-width as the content column so it aligns with user message
- * cards. Carries the blurred backdrop and 8px bottom gap so the blur only
- * covers the content area, leaving the scrollbar track unobscured.
+ * Inner wrapper inside the composer slot. ChatRoot pairs it with the same
+ * `contentClass` the transcript column uses (defaultContentClass unless the
+ * host overrides it), so the composer always aligns with the rows above it —
+ * including when a host widens the column. Carries the blurred backdrop and
+ * 8px bottom gap so the blur only covers the content area, leaving the
+ * scrollbar track unobscured.
  * This is the element exposed as `view.composerSlot` (portal target).
  */
 export const composerSlotInnerClass = style({
-  marginLeft: 'auto',
-  marginRight: 'auto',
-  width: '100%',
-  maxWidth: CONTAINER_WIDTH,
   paddingBottom: '8px',
   pointerEvents: 'auto',
 });
