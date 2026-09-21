@@ -109,12 +109,24 @@ export type ExecuteRow = {
 /** True when `text` fits on one row of the panel; only consulted for non-ASCII text. */
 export type RowFits = (text: string) => boolean;
 
-type LineRows = { maxChars: number; rows: ExecuteRow[] };
+/**
+ * Rows cached per wrap key. The key is the cap plus the measurement epoch
+ * (`MeasureCtx.measureEpoch`, bumped when a font finishes loading), so a
+ * non-ASCII row measured with the fallback face is re-cut once the real one
+ * is in. A panel is wrapped at two caps (with and without the expanded
+ * panel's scrollbar), so both stay cached instead of evicting each other on
+ * every live flush.
+ */
+type RowCache = Map<string, ExecuteRow[]>;
 
-/** Per display line: its rows at a given width. Lines are identity-stable across flushes. */
-const lineRows = new WeakMap<ExecuteDisplayLine, LineRows>();
-/** Per display array: the assembled rows, so an unchanged transcript costs nothing. */
-const arrayRows = new WeakMap<ExecuteDisplayLine[], LineRows>();
+/** Per display line: its rows per wrap key. Lines are identity-stable across flushes. */
+const lineRows = new WeakMap<ExecuteDisplayLine, RowCache>();
+/** Per display array: the assembled rows per wrap key, so an unchanged transcript costs nothing. */
+const arrayRows = new WeakMap<ExecuteDisplayLine[], RowCache>();
+
+function wrapKey(cap: number, epoch: number | undefined): string {
+  return `${cap}:${epoch ?? 0}`;
+}
 
 /** Anything outside printable ASCII may not be one advance wide in the code font. */
 const NON_ASCII = /[^ -~]/;
@@ -134,22 +146,34 @@ const NON_ASCII = /[^ -~]/;
 export function wrapExecuteLines(
   lines: ExecuteDisplayLine[],
   maxChars: number,
-  fits: RowFits
+  fits: RowFits,
+  epoch?: number
 ): ExecuteRow[] {
   const cap = Math.max(1, Math.floor(maxChars));
-  const whole = arrayRows.get(lines);
-  if (whole && whole.maxChars === cap) return whole.rows;
+  const key = wrapKey(cap, epoch);
+  let whole = arrayRows.get(lines);
+  const hit = whole?.get(key);
+  if (hit) return hit;
 
   const rows: ExecuteRow[] = [];
   for (const line of lines) {
-    let cached = lineRows.get(line);
-    if (!cached || cached.maxChars !== cap) {
-      cached = { maxChars: cap, rows: wrapLine(line, cap, fits) };
-      lineRows.set(line, cached);
+    let cache = lineRows.get(line);
+    if (!cache) {
+      cache = new Map();
+      lineRows.set(line, cache);
     }
-    for (const row of cached.rows) rows.push(row);
+    let lineCut = cache.get(key);
+    if (!lineCut) {
+      lineCut = wrapLine(line, cap, fits);
+      cache.set(key, lineCut);
+    }
+    for (const row of lineCut) rows.push(row);
   }
-  arrayRows.set(lines, { maxChars: cap, rows });
+  if (!whole) {
+    whole = new Map();
+    arrayRows.set(lines, whole);
+  }
+  whole.set(key, rows);
   return rows;
 }
 

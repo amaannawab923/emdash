@@ -119,7 +119,13 @@ export function ExecuteBody(props: ExecuteBodyProps) {
   const shown = createMemo(() =>
     truncated() ? props.rows.slice(0, Math.max(0, props.visibleRows - 1)) : props.rows
   );
-  const hiddenCount = () => props.rows.length - shown().length;
+  // Counted in lines as the person sees them, not the physical rows a long
+  // line was cut into.
+  const hiddenLines = createMemo(() => {
+    const lines = new Set<ExecuteDisplayLine>();
+    for (const row of props.rows.slice(shown().length)) lines.add(row.line);
+    return lines.size;
+  });
 
   const rowStyle = () => ({
     height: `${props.codeLineH}px`,
@@ -163,9 +169,18 @@ export function ExecuteBody(props: ExecuteBodyProps) {
           class={`${executeLine} ${executeMoreLine}`}
           style={rowStyle()}
           role="button"
+          tabIndex={0}
           data-collapse-id={props.item.id}
+          // A key press becomes the click ChatRoot's collapse delegation
+          // listens for.
+          on:keydown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              (e.currentTarget as HTMLElement).click();
+            }
+          }}
         >
-          {`··· ${hiddenCount()} more ${hiddenCount() === 1 ? 'line' : 'lines'} — `}
+          {`··· ${hiddenLines()} more ${hiddenLines() === 1 ? 'line' : 'lines'} — `}
           <span class={executeMoreAction}>Show all</span>
         </div>
       </Show>

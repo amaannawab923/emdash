@@ -85,15 +85,22 @@ function rowWidth(ctx: MeasureCtx, vars: ExecuteVars, scrolls: boolean): number 
   return ctx.width - 2 * vars.border - 2 * vars.linePadX - (scrolls ? vars.scrollbarSize : 0);
 }
 
-/** One advance of the code font, from a run long enough to average out rounding. */
+/**
+ * One advance of the code font, from a run long enough to average out
+ * rounding. Memoized per fonts object AND measurement epoch: the epoch is
+ * bumped when a font finishes loading, and the advance measured against the
+ * fallback face before that must not outlive it (review, PR #84). A zero
+ * (nothing measurable yet) is never cached.
+ */
 const ADVANCE_SAMPLE = '0'.repeat(64);
-const advanceMemo = new WeakMap<MeasureCtx['theme']['fonts'], number>();
+const advanceMemo = new WeakMap<MeasureCtx['theme']['fonts'], { epoch: number; advance: number }>();
 function codeAdvance(ctx: MeasureCtx): number {
   const fonts = ctx.theme.fonts;
+  const epoch = ctx.measureEpoch ?? 0;
   const hit = advanceMemo.get(fonts);
-  if (hit !== undefined) return hit;
+  if (hit && hit.epoch === epoch) return hit.advance;
   const advance = measureTextWidth(ADVANCE_SAMPLE, ctx) / ADVANCE_SAMPLE.length;
-  advanceMemo.set(fonts, advance);
+  if (advance > 0) advanceMemo.set(fonts, { epoch, advance });
   return advance;
 }
 
@@ -113,7 +120,12 @@ function executeRows(
   const wrap = (scrolls: boolean): ExecuteRow[] => {
     const width = rowWidth(ctx, vars, scrolls);
     const maxChars = advance > 0 ? Math.max(8, Math.floor(width / advance)) : 80;
-    return wrapExecuteLines(lines, maxChars, (text) => measureTextWidth(text, ctx) <= width);
+    return wrapExecuteLines(
+      lines,
+      maxChars,
+      (text) => measureTextWidth(text, ctx) <= width,
+      ctx.measureEpoch
+    );
   };
   const rows = wrap(false);
   const scrolls = expanded && rows.length > vars.expandedMaxLines;

@@ -8,10 +8,10 @@
  *
  * State is managed by createClipboard (Lane B — never touches measure).
  *
- * The click is a native listener (`on:click`), not Solid's delegated one: a
- * host that wraps the button to stop the click reaching an ancestor toggle
- * (execute.def.tsx) would otherwise also stop it reaching the document, where
- * delegated handlers live, and the copy would never run.
+ * The icon variant's click is a native listener (`on:click`), not Solid's
+ * delegated one: its host wraps it to stop the click reaching an ancestor
+ * toggle (execute.def.tsx), which would otherwise also stop it reaching the
+ * document, where delegated handlers live, and the copy would never run.
  */
 
 import { Show } from 'solid-js';
@@ -31,14 +31,29 @@ export function CopyButton(props: CopyButtonProps) {
   const label = () => props.label ?? 'Copy';
   const ariaLabel = () => (copied() ? `${label()} — copied` : label());
 
-  if (props.variant === 'overlay' || props.variant === 'icon') {
+  if (props.variant === 'icon') {
     return (
       <button
         type="button"
-        class={props.variant === 'overlay' ? copyButtonOverlay : copyButtonIcon}
+        class={copyButtonIcon}
         title={label()}
         aria-label={ariaLabel()}
         on:click={() => copy(props.text)}
+      >
+        <Show when={copied()} fallback={<IconCopy />}>
+          <IconCheck />
+        </Show>
+      </button>
+    );
+  }
+
+  if (props.variant === 'overlay') {
+    return (
+      <button
+        type="button"
+        class={copyButtonOverlay}
+        aria-label={ariaLabel()}
+        onClick={() => copy(props.text)}
       >
         <Show when={copied()} fallback={<IconCopy />}>
           <IconCheck />
@@ -52,7 +67,7 @@ export function CopyButton(props: CopyButtonProps) {
       type="button"
       class={copyButtonInline}
       aria-label={ariaLabel()}
-      on:click={() => copy(props.text)}
+      onClick={() => copy(props.text)}
     >
       <Show when={copied()} fallback={<IconCopy />}>
         <IconCheck />

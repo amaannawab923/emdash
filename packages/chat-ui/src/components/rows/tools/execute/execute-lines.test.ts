@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ChatExecute } from '@/model';
 import { executeLines, wrapExecuteLines } from './execute-lines';
 
@@ -103,5 +103,27 @@ describe('wrapExecuteLines', () => {
     expect(
       wrapExecuteLines(executeLines(item({ outputLines: live, outputVersion: 2 })), 2, ascii)
     ).not.toBe(second);
+  });
+
+  it('keeps rows per width, so alternating two caps (the expanded panel with and without its scrollbar) hits both caches', () => {
+    const lines = executeLines(item({ command: 'abcdefghij' }));
+    const wide = wrapExecuteLines(lines, 20, ascii);
+    const narrow = wrapExecuteLines(lines, 5, ascii);
+    expect(wrapExecuteLines(lines, 20, ascii)).toBe(wide);
+    expect(wrapExecuteLines(lines, 5, ascii)).toBe(narrow);
+  });
+
+  it('re-cuts once the measurement epoch changes (a font finished loading)', () => {
+    const lines = executeLines(item({ command: '漢字漢字' }));
+    const fallback = vi.fn(() => true);
+    const before = wrapExecuteLines(lines, 10, fallback, 1);
+    expect(fallback).toHaveBeenCalled();
+    const real = vi.fn((text: string) => text.length <= 3);
+    const after = wrapExecuteLines(lines, 10, real, 2);
+    expect(real).toHaveBeenCalled();
+    expect(after).not.toBe(before);
+    expect(after.map((r) => r.text)).toEqual(['$ 漢', '字漢字']);
+    // The old epoch's rows are still there for a reader of that epoch.
+    expect(wrapExecuteLines(lines, 10, fallback, 1)).toBe(before);
   });
 });
