@@ -85,7 +85,7 @@ export const executeCopy = style({
 /** The hoisted `cd` folder — "in run-x/app" — beside the copy button, muted, one line. */
 export const executeCwd = style({
   display: 'inline-block',
-  maxWidth: '40%',
+  maxWidth: '320px',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
