@@ -9,8 +9,14 @@ import { defineUnit } from '@core/units';
 import { Show, createMemo } from 'solid-js';
 import type { ChatExecute } from '@/model';
 import { ExecuteBody } from './Execute';
-import { executeLines, wrapExecuteLines, type ExecuteRow } from './execute-lines';
-import { executeCopy } from './execute.css';
+import {
+  cwdLabel,
+  executeLines,
+  splitCdPrefix,
+  wrapExecuteLines,
+  type ExecuteRow,
+} from './execute-lines';
+import { executeCopy, executeCwd } from './execute.css';
 
 export { executeFromItem } from './execute.presenter';
 
@@ -173,9 +179,18 @@ function ExecuteUnitRender(props: { data: ChatExecute; ctx: RenderCtx; vars: Exe
       errorTitle={props.data.error}
       awaitingPermission={props.data.awaitingPermission}
       icon={<IconTerminal />}
-      header={props.data.inputSummary || 'Execute'}
+      // "Shell", not "Execute": the row is a shell command, and that is
+      // the word people use for it (Waypoint feedback round 1, Fix 6).
+      header={props.data.inputSummary || 'Shell'}
       headerRight={
         <Show when={props.data.command}>
+          <Show when={splitCdPrefix(props.data.command).cwd} keyed>
+            {(cwd) => (
+              <span class={executeCwd} title={cwd}>
+                in {cwdLabel(cwd)}
+              </span>
+            )}
+          </Show>
           {/* A native (non-delegated) listener: ChatRoot's collapse toggle is a
               native listener on the scroll container, so only stopping the
               event before it bubbles that far keeps a copy from toggling. */}

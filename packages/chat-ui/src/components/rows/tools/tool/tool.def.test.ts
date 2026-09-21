@@ -49,6 +49,21 @@ function screenshotItem(images: Array<{ mimeType: string; data: string }>) {
   } satisfies Extract<ToolNode, { kind: 'unknown-tool-call' }>;
 }
 
+describe('an unknown tool', () => {
+  it('reads an MCP id as tool + server, never as `other`', () => {
+    const tool = toolFromItem(screenshotItem([]), ctx);
+    expect(tool.name).toBe('take_screenshot');
+    expect(tool.inputSummary).toBe('browser');
+  });
+
+  it('shows a known kind for a plain id, and nothing for `other`', () => {
+    const plain = { ...screenshotItem([]), name: 'CustomTool', title: 'CustomTool' };
+    expect(toolFromItem(plain, ctx)).toMatchObject({ name: 'CustomTool' });
+    expect(toolFromItem(plain, ctx).inputSummary).toBeUndefined();
+    expect(toolFromItem({ ...plain, toolKind: 'think' }, ctx).inputSummary).toBe('think');
+  });
+});
+
 describe('tool images', () => {
   it("maps a tool item's images to attachments with data URLs, in order", () => {
     const tool = toolFromItem(

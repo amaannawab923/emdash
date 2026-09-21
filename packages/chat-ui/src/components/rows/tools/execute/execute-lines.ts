@@ -27,6 +27,31 @@ export type ExecuteDisplayLine = {
 
 export const TRUNCATED_LINE_TEXT = '… earlier output truncated';
 
+/**
+ * A command that starts with `cd <dir> && ` — the way an agent pins every
+ * command to its worktree — split into the folder and the command a
+ * person actually reads. The folder goes in the row header (Waypoint
+ * feedback round 1, Fix 6); the panel starts at the real command. Copy
+ * still copies the whole thing. Only a leading `cd … &&` counts: a `cd`
+ * elsewhere in the command is part of the command.
+ */
+export function splitCdPrefix(command: string): { cwd: string | null; rest: string } {
+  const m = /^cd\s+(?:"([^"\n]+)"|'([^'\n]+)'|([^\s;&|]+))\s*&&\s*/.exec(command);
+  if (!m) return { cwd: null, rest: command };
+  const cwd = m[1] ?? m[2] ?? m[3] ?? '';
+  const rest = command.slice(m[0].length);
+  return rest.trim() ? { cwd, rest } : { cwd: null, rest: command };
+}
+
+/** `/a/b/worktrees/run-x/app` → `run-x/app`: the last two segments, enough to tell worktrees apart. */
+export function cwdLabel(cwd: string): string {
+  const parts = cwd
+    .replace(/[\\/]+$/, '')
+    .split(/[\\/]/)
+    .filter(Boolean);
+  return parts.slice(-2).join('/') || cwd;
+}
+
 /** Tabs render at tab stops under `white-space: pre`, which the wrapper cannot count; expand them. */
 const TAB = '    ';
 
@@ -80,7 +105,7 @@ function buildDisplay(
     next.push(old && old.kind === kind && old.text === text ? old : { kind, text });
   };
 
-  const commandLines = (item.command || '…').split('\n');
+  const commandLines = (splitCdPrefix(item.command).rest || '…').split('\n');
   for (let i = 0; i < commandLines.length; i += 1) {
     push('command', `${i === 0 ? '$' : ' '} ${commandLines[i]}`);
   }

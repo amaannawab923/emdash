@@ -37,6 +37,22 @@ function imagesFromItem(item: ToolNode): ChatImageAttachment[] | undefined {
   }));
 }
 
+/**
+ * A raw tool id the provider gave no better name for. An MCP tool arrives
+ * as `mcp__<server>__<tool>` (Claude Code's naming): the tool is the name
+ * and the server the summary, the way a recognised MCP call reads. Any
+ * other id is shown as is.
+ */
+export function unknownToolLabel(raw: string): { name: string; server?: string } {
+  const m = /^mcp__([^_].*?)__(.+)$/.exec(raw);
+  return m ? { name: m[2], server: m[1] } : { name: raw };
+}
+
+/** The ACP kind as a summary — never the literal `other`, which says nothing the name did not. */
+function knownKind(kind: string | null | undefined): string | undefined {
+  return kind && kind !== 'other' ? kind : undefined;
+}
+
 export function toolFromItem(item: ToolNode, ctx: SegmentCtx): ChatToolCall {
   const base = 'toolCallId' in item ? item : null;
   const name =
@@ -49,7 +65,7 @@ export function toolFromItem(item: ToolNode, ctx: SegmentCtx): ChatToolCall {
           : item.kind === 'spawn-subagent-tool-call'
             ? 'Subagent'
             : item.kind === 'unknown-tool-call'
-              ? item.name
+              ? unknownToolLabel(item.name).name
               : item.kind === 'tool-group'
                 ? item.label
                 : 'Tool';
@@ -63,7 +79,7 @@ export function toolFromItem(item: ToolNode, ctx: SegmentCtx): ChatToolCall {
           : item.kind === 'spawn-subagent-tool-call'
             ? `${item.name}${item.background ? ' (background)' : ''}`
             : item.kind === 'unknown-tool-call'
-              ? (item.toolKind ?? undefined)
+              ? (unknownToolLabel(item.name).server ?? knownKind(item.toolKind))
               : base?.inputSummary;
   const images = imagesFromItem(item);
   return {

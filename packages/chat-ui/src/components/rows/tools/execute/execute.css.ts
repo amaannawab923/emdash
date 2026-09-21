@@ -81,3 +81,15 @@ export const executeCopy = style({
   display: 'inline-flex',
   alignItems: 'center',
 });
+
+/** The hoisted `cd` folder — "in run-x/app" — beside the copy button, muted, one line. */
+export const executeCwd = style({
+  display: 'inline-block',
+  maxWidth: '40%',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  fontFamily: 'inherit',
+  color: vars.fgMuted,
+  marginRight: 6,
+});

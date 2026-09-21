@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ChatExecute } from '@/model';
-import { executeLines, wrapExecuteLines } from './execute-lines';
+import { cwdLabel, executeLines, splitCdPrefix, wrapExecuteLines } from './execute-lines';
 
 function item(overrides: Partial<ChatExecute> = {}): ChatExecute {
   return {
@@ -41,6 +41,34 @@ describe('executeLines', () => {
       expect(second[i]).toBe(first[i]);
     }
     expect(second).toHaveLength(first.length + 1);
+  });
+});
+
+describe('splitCdPrefix', () => {
+  it('lifts a leading `cd "<dir>" &&` out of the command', () => {
+    expect(
+      splitCdPrefix('cd "/Users/me/Library/Application Support/wt/run-x/app" && ls -la src')
+    ).toEqual({ cwd: '/Users/me/Library/Application Support/wt/run-x/app', rest: 'ls -la src' });
+    expect(splitCdPrefix("cd '/tmp/a b' && pwd")).toEqual({ cwd: '/tmp/a b', rest: 'pwd' });
+    expect(splitCdPrefix('cd /tmp/a && pwd')).toEqual({ cwd: '/tmp/a', rest: 'pwd' });
+  });
+
+  it('leaves a command that is not shaped that way alone', () => {
+    expect(splitCdPrefix('ls && cd /tmp')).toEqual({ cwd: null, rest: 'ls && cd /tmp' });
+    expect(splitCdPrefix('cd /tmp; ls')).toEqual({ cwd: null, rest: 'cd /tmp; ls' });
+    expect(splitCdPrefix('cd /tmp &&')).toEqual({ cwd: null, rest: 'cd /tmp &&' });
+    expect(splitCdPrefix('')).toEqual({ cwd: null, rest: '' });
+  });
+
+  it('the panel starts at the real command; copy keeps the whole thing', () => {
+    const lines = executeLines(item({ command: 'cd "/wt/run-x" && ls' }));
+    expect(lines[0]).toEqual({ kind: 'command', text: '$ ls' });
+  });
+
+  it('labels a folder by its last two segments', () => {
+    expect(cwdLabel('/Users/me/Library/Application Support/wt/run-x/app')).toBe('run-x/app');
+    expect(cwdLabel('/tmp/')).toBe('tmp');
+    expect(cwdLabel('app')).toBe('app');
   });
 });
 
