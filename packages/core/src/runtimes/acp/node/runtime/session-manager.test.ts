@@ -181,6 +181,84 @@ describe('AcpRuntime session manager', () => {
     ]);
   });
 
+  it('attaches session-scoped MCP servers without writing them to the provider config', async () => {
+    const h = makeAcpHarness();
+    const readMcpServers = vi
+      .spyOn(h.deps.agentHost, 'readMcpServers')
+      .mockResolvedValueOnce(ok([{ name: 'filesystem', command: 'npx' }]));
+    const rt = new AcpRuntime(h.deps);
+
+    const result = await rt.startSession(
+      makeStartInput({
+        conversationId: 'conv-scoped',
+        mcpServers: [{ name: 'host-browser', command: '/opt/host/bin/node', args: ['browser.js'] }],
+      })
+    );
+
+    expect(isOk(result)).toBe(true);
+    // Both reach the session: the provider's own config AND the caller's.
+    expect(h.agent.newSession).toHaveBeenCalledWith({
+      cwd: '/tmp/workspace',
+      mcpServers: [
+        { name: 'filesystem', command: 'npx', args: [], env: [] },
+        { name: 'host-browser', command: '/opt/host/bin/node', args: ['browser.js'], env: [] },
+      ],
+    });
+    // The whole point: nothing was persisted anywhere. The provider config
+    // was only ever READ.
+    expect(readMcpServers).toHaveBeenCalledTimes(1);
+  });
+
+  it('a session-scoped server replaces a configured one of the same name', async () => {
+    const h = makeAcpHarness();
+    // A stale entry left in the provider's global config by an older
+    // build must not shadow the definition this session asked for —
+    // that is what lets a host stop writing to that file without
+    // cleaning it up first.
+    vi.spyOn(h.deps.agentHost, 'readMcpServers').mockResolvedValueOnce(
+      ok([{ name: 'host-browser', command: '/stale/path/node', args: ['old.js'] }])
+    );
+    const rt = new AcpRuntime(h.deps);
+
+    const result = await rt.startSession(
+      makeStartInput({
+        conversationId: 'conv-override',
+        mcpServers: [{ name: 'host-browser', command: '/fresh/path/node', args: ['new.js'] }],
+      })
+    );
+
+    expect(isOk(result)).toBe(true);
+    expect(h.agent.newSession).toHaveBeenCalledWith({
+      cwd: '/tmp/workspace',
+      mcpServers: [
+        { name: 'host-browser', command: '/fresh/path/node', args: ['new.js'], env: [] },
+      ],
+    });
+  });
+
+  it('carries session-scoped MCP servers through a resume, not just a new session', async () => {
+    const h = makeAcpHarness();
+    // LoadSessionRequest.mcpServers is REQUIRED by the protocol, so a
+    // resumed session that lost these would silently lose its tools.
+    vi.spyOn(h.deps.agentHost, 'readMcpServers').mockResolvedValueOnce(ok([]));
+    const rt = new AcpRuntime(h.deps);
+
+    const result = await rt.resumeSession({
+      ...makeStartInput({
+        conversationId: 'conv-scoped-load',
+        mcpServers: [{ name: 'host-browser', command: '/opt/host/bin/node' }],
+      }),
+      sessionId: 'session-old',
+    });
+
+    expect(isOk(result)).toBe(true);
+    expect(h.agent.loadSession).toHaveBeenCalledWith({
+      cwd: '/tmp/workspace',
+      sessionId: 'session-old',
+      mcpServers: [{ name: 'host-browser', command: '/opt/host/bin/node', args: [], env: [] }],
+    });
+  });
+
   it('re-applies the persisted mode after a new session starts', async () => {
     const h = makeAcpHarness();
     h.agent.newSession.mockResolvedValueOnce({

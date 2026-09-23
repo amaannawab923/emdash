@@ -35,12 +35,14 @@ import type {
   PromptDraftUpdate,
   SessionConfigState,
   SessionMcpServer,
+  SessionScopedMcpServer,
   SessionState,
   SessionSummary,
   SessionUsage,
   TerminalState,
   TranscriptTurn,
 } from '#runtimes/acp/api';
+import type { McpServerRegistration } from '#primitives/mcp/api';
 import { acpErr, acpStartInputSchema } from '#runtimes/acp/api';
 import type { InboundRouter } from '#runtimes/acp/node/agent-ports/agent-client';
 import type { FsPort } from '#runtimes/acp/node/agent-ports/fs-port';
@@ -236,7 +238,11 @@ export class SessionManager implements InboundRouter {
 
     const acquired = acquire.data;
     const connection = acquired.value;
-    const mcpServers = await this.resolveSessionMcpServers(input.providerId, connection);
+    const mcpServers = await this.resolveSessionMcpServers(
+      input.providerId,
+      connection,
+      input.mcpServers
+    );
     const mcpServerSummary = summarizeAcpMcpServers(mcpServers);
     let record: SessionRecord | null = null;
     // Resume outcome for the lifecycle report (spec §7.4): null when no resume was attempted
@@ -702,7 +708,32 @@ export class SessionManager implements InboundRouter {
     this.upsertSessionSummary(record.input, record.cell, state);
   }
 
-  private async resolveSessionMcpServers(providerId: string, connection: AcpConnectionEntry) {
+  /**
+   * The servers this session gets: what the provider's own config lists,
+   * plus whatever the caller attached to this one session.
+   *
+   * A session server whose name matches a configured one REPLACES it. A
+   * caller that passes its own definition means that definition, and a
+   * stale entry left in the provider's global config must not shadow it
+   * — which is also what lets a host stop writing to that global config
+   * without waiting for the old entries to be cleaned up first.
+   */
+  private async resolveSessionMcpServers(
+    providerId: string,
+    connection: AcpConnectionEntry,
+    sessionServers: readonly SessionScopedMcpServer[] = []
+  ) {
+    const configured = await this.readConfiguredMcpServers(providerId);
+    const overridden = new Set<string>(sessionServers.map((server) => server.name));
+    const merged: McpServerRegistration[] = configured.filter(
+      (server) => !overridden.has(server.name)
+    );
+    for (const server of sessionServers) merged.push({ ...server });
+    return registrationsToAcpMcpServers(merged, connection.mcpCapabilities);
+  }
+
+  /** The provider's own config file, or [] when it cannot be read. */
+  private async readConfiguredMcpServers(providerId: string): Promise<McpServerRegistration[]> {
     try {
       const result = await this.deps.agentHost.readMcpServers(providerId);
       if (!result.success) {
@@ -713,7 +744,7 @@ export class SessionManager implements InboundRouter {
         return [];
       }
 
-      return registrationsToAcpMcpServers(result.data, connection.mcpCapabilities);
+      return [...result.data];
     } catch (error) {
       this.deps.logger.warn('SessionManager: failed to read MCP servers for session', {
         providerId,
